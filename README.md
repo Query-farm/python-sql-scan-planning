@@ -1,18 +1,18 @@
-# Query Farm SQL Scan Planning
+# [Query.Farm](https://query.farm) SQL Scan Planning
 
 A Python library for intelligent file filtering using SQL expressions and metadata-based scan planning. This library enables efficient data lake query optimization by determining which files need to be scanned based on their statistical metadata.
 
 ## Overview
 
-Query Farm SQL Scan Planning provides predicate pushdown capabilities for file-based data storage systems. By maintaining metadata about file contents (min/max values, value sets, null presence), the library can quickly determine which files contain data that could satisfy a given `SQL WHERE` clause, significantly reducing query execution time.
+This module provides predicate pushdown capabilities for file-based data storage systems. By maintaining metadata about file contents (min/max values, value sets, null presence), the library can quickly determine which files contain data that could satisfy a given `SQL WHERE` clause, significantly reducing query execution time.
 
 ## Features
 
 - **SQL Expression Parsing**: Parse and evaluate complex `SQL WHERE` clauses using [SQLGlot](https://github.com/tobymao/sqlglot)
 - **Metadata-Based Filtering**: Support for both range-based (min/max) and set-based field metadata
-- **Null Handling**: Comprehensive support for NULL value semantics in SQL expressions
-- **Complex Predicates**: Handle AND, OR, XOR, NOT, IN, BETWEEN, CASE statements, and more
-- **Multiple Data Types**: Support for integers, floats, strings, decimals, and NULL values
+- **Null Handling**: Comprehensive support for `NULL` value semantics in SQL expressions
+- **Complex Predicates**: Handle `AND`, `OR`, `XOR`, `NOT`, `IN`, `BETWEEN`, `CASE` statements, and more
+- **Multiple Data Types**: Support for integers, floats, strings, decimals, and `NULL` values
 - **Dialect Support**: Configurable SQL dialect support (default: DuckDB)
 
 ## Installation
@@ -215,14 +215,6 @@ rye run pytest --mypy
 3. Add tests for new functionality
 4. Ensure all tests pass
 5. Submit a pull request
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Related Projects
-
-- [SQLGlot](https://github.com/tobymao/sqlglot) - SQL parser and transpiler
 
 ## Author
 
