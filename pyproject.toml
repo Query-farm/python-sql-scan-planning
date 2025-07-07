@@ -1,21 +1,22 @@
 [project]
 name = "query-farm-sql-scan-planning"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.1.2"
+description = "A Python library for intelligent file filtering using SQL expressions and metadata-based scan planning. This library enables efficient data lake query optimization by determining which files need to be scanned based on their statistical metadata."
 authors = [
     { name = "Rusty Conover", email = "rusty@conover.me" }
 ]
 dependencies = [
     "sqlglot>=26.33.0",
 ]
-requires-python = ">= 3.12"
+readme = "README.md"
+requires-python = ">= 3.11"
 keywords = ["sql", "predicate pushdown", "sql scan planning", "scan planning"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Topic :: Database",
     "Topic :: Database :: Database Engines/Servers",
-    "Programming Language :: Python :: 3.12"
+    "Programming Language :: Python :: 3.11"
 ]
 
 
