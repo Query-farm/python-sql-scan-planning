@@ -1,8 +1,8 @@
 from collections.abc import Callable
 from dataclasses import dataclass
-from decimal import Decimal
 from typing import Any
-
+import duckdb
+import pyarrow as pa
 import sqlglot
 import sqlglot.expressions
 import sqlglot.optimizer.simplify
@@ -19,17 +19,17 @@ class BaseFieldInfo:
 
 
 @dataclass
-class RangeFieldInfo[T: Any](BaseFieldInfo):
+class RangeFieldInfo(BaseFieldInfo):
     """
     Information about a field that has a min and max value.
     """
 
-    min_value: T
-    max_value: T
+    min_value: pa.Scalar
+    max_value: pa.Scalar
 
 
 @dataclass
-class SetFieldInfo[T: Any](BaseFieldInfo):
+class SetFieldInfo(BaseFieldInfo):
     """
     Information about a field where the set of values are known.
     The information about what values that are contained can produce
@@ -37,18 +37,64 @@ class SetFieldInfo[T: Any](BaseFieldInfo):
     """
 
     values: set[
-        T
+        pa.Scalar
     ]  # Set of values that are known to be present in the field, false positives are okay.
 
 
-AnyFieldInfo = (
-    SetFieldInfo[Decimal]
-    | SetFieldInfo[float]
-    | SetFieldInfo[str]
-    | SetFieldInfo[int]
-    | RangeFieldInfo[int]
-    | RangeFieldInfo[None]
-)
+AnyFieldInfo = SetFieldInfo | RangeFieldInfo
+
+
+def _scalar_value_op(
+    a: pa.Scalar, b: pa.Scalar, op: Callable[[Any, Any], bool]
+) -> bool:
+    assert not pa.types.is_null(a.type), (
+        f"Expected a non-null scalar value, got {a} of type {a.type}"
+    )
+    assert not pa.types.is_null(b.type), (
+        f"Expected a non-null scalar value, got {b} of type {b.type}"
+    )
+
+    # If we have integers or floats we can do that comparision regardless of their types.
+    if pa.types.is_integer(a.type) and pa.types.is_integer(b.type):
+        return op(a.as_py(), b.as_py())
+
+    if pa.types.is_floating(a.type) and pa.types.is_floating(b.type):
+        return op(a.as_py(), b.as_py())
+
+    if pa.types.is_string(a.type) and pa.types.is_string(b.type):
+        return op(a.as_py(), b.as_py())
+
+    if pa.types.is_boolean(a.type) and pa.types.is_boolean(b.type):
+        return op(a.as_py(), b.as_py())
+
+    if pa.types.is_decimal(a.type) and pa.types.is_decimal(b.type):
+        return op(a.as_py(), b.as_py())
+
+    assert type(a) is type(b), (
+        f"Expected same type for comparison, got {type(a)} and {type(b)}"
+    )
+
+    return op(a.as_py(), b.as_py())
+
+
+def _scalar_value_lte(a: pa.Scalar, b: pa.Scalar) -> bool:
+    return _scalar_value_op(a, b, lambda x, y: x <= y)
+
+
+def _scalar_value_lt(a: pa.Scalar, b: pa.Scalar) -> bool:
+    return _scalar_value_op(a, b, lambda x, y: x < y)
+
+
+def _scalar_value_gt(a: pa.Scalar, b: pa.Scalar) -> bool:
+    return _scalar_value_op(a, b, lambda x, y: x > y)
+
+
+def _scalar_value_gte(a: pa.Scalar, b: pa.Scalar) -> bool:
+    return _scalar_value_op(a, b, lambda x, y: x >= y)
+
+
+def _scalar_value_eq(a: pa.Scalar, b: pa.Scalar) -> bool:
+    return _scalar_value_op(a, b, lambda x, y: x == y)
 
 
 FileFieldInfo = dict[str, AnyFieldInfo]
@@ -93,18 +139,29 @@ class Planner:
         if not isinstance(node.left, sqlglot.expressions.Column):
             return None
 
+        if node.right.find(sqlglot.expressions.Column) is not None:
+            # Can't evaluate this since it has a right hand column ref, ideally
+            # this should be removed further up.
+            return None
+
         # The thing on the right side should be something that can be evaluated against a range.
         # ideally, its going to be a
-        assert isinstance(
-            node.right,
-            sqlglot.expressions.Literal
-            | sqlglot.expressions.Null
-            | sqlglot.expressions.Neg,
-        ), (
-            f"Expected a literal or null on righthand side of predicate {node} got a {type(node.right)}"
-        )
+        if True:  # isinstance(node.right, sqlglot.expressions.Cast):
+            connection = duckdb.connect(":memory:")
+            value_result = connection.execute(
+                f"select {node.right.sql('duckdb')}"
+            ).arrow()
+            assert value_result.num_rows == 1, (
+                f"Expected a single row result from cast, got {value_result.num_rows} rows"
+            )
+            assert value_result.num_columns == 1, (
+                f"Expected a single column result from cast, got {value_result.num_columns} columns"
+            )
 
-        right_val = node.right.to_py()
+            right_val = value_result.column(0)[0]
+            # This is an interesting behavior, null is returned with an int32 type.
+            if type(right_val) is pa.Int32Scalar and right_val.as_py() is None:
+                right_val = pa.scalar(None, type=pa.null())
 
         left_val = node.left
         assert isinstance(left_val, sqlglot.expressions.Column), (
@@ -117,17 +174,19 @@ class Planner:
 
         field_info = file_info.get(referenced_field_name)
 
+        # Right now if the field is not present in the file,
+        # just note that we couldn't evaluate the expression.
         if field_info is None:
             return None
 
         if isinstance(field_info, SetFieldInfo):
             match type(node):
                 case sqlglot.expressions.EQ:
-                    if right_val is None:
+                    if pa.types.is_null(right_val.type):
                         return False
                     return right_val in field_info.values
                 case sqlglot.expressions.NEQ:
-                    if right_val is None:
+                    if pa.types.is_null(right_val.type):
                         return False
                     return right_val not in field_info.values
                 case _:
@@ -136,44 +195,70 @@ class Planner:
                     )
 
         if type(node) is sqlglot.expressions.NullSafeNEQ:
-            if right_val is not None and field_info.has_non_nulls is False:
+            if (
+                not pa.types.is_null(right_val.type)
+                and field_info.has_non_nulls is False
+            ):
                 return True
-            return not (field_info.min_value == field_info.max_value == right_val)
+
+            if pa.types.is_null(right_val.type):
+                return field_info.has_non_nulls
+
+            return not (
+                _scalar_value_eq(field_info.min_value, field_info.max_value)
+                and _scalar_value_eq(field_info.min_value, right_val)
+            )
+
         elif type(node) is sqlglot.expressions.NullSafeEQ:
-            if right_val is None and field_info.has_non_nulls:
+            if pa.types.is_null(right_val.type) and field_info.has_non_nulls:
                 return True
             if field_info.min_value is None or field_info.max_value is None:
                 return False
-            assert right_val is not None
-            return field_info.min_value <= right_val <= field_info.max_value
+            assert not pa.types.is_null(right_val.type)
+            return _scalar_value_lte(
+                field_info.min_value, right_val
+            ) and _scalar_value_lte(right_val, field_info.max_value)
 
         if field_info.min_value is None or field_info.max_value is None:
             return False
 
-        if right_val is None:
+        if pa.types.is_null(right_val.type):
             return False
 
         match type(node):
             case sqlglot.expressions.EQ:
-                return field_info.min_value <= right_val <= field_info.max_value
+                return _scalar_value_lte(
+                    field_info.min_value, right_val
+                ) and _scalar_value_lte(right_val, field_info.max_value)
             case sqlglot.expressions.NEQ:
-                return not (field_info.min_value == field_info.max_value == right_val)
+                return not (
+                    _scalar_value_eq(field_info.min_value, field_info.max_value)
+                    and _scalar_value_eq(field_info.min_value, right_val)
+                )
             case sqlglot.expressions.LT:
-                return field_info.min_value < right_val
+                return _scalar_value_lt(field_info.min_value, right_val)
             case sqlglot.expressions.LTE:
-                return field_info.min_value <= right_val
+                return _scalar_value_lte(field_info.min_value, right_val)
             case sqlglot.expressions.GT:
-                return field_info.max_value > right_val
+                return _scalar_value_gt(field_info.max_value, right_val)
             case sqlglot.expressions.GTE:
-                return field_info.max_value >= right_val
+                return _scalar_value_gte(field_info.max_value, right_val)
             case sqlglot.expressions.NullSafeEQ:
-                if right_val is None and field_info.has_non_nulls:
+                if pa.types.is_null(right_val.type) and field_info.has_non_nulls:
                     return True
-                return field_info.min_value <= right_val <= field_info.max_value
+                return _scalar_value_lte(
+                    field_info.min_value, right_val
+                ) and _scalar_value_lte(right_val, field_info.max_value)
             case sqlglot.expressions.NullSafeNEQ:
-                if right_val is not None and field_info.has_non_nulls is False:
+                if (
+                    not pa.types.is_null(right_val.type)
+                    and field_info.has_non_nulls is False
+                ):
                     return True
-                return not (field_info.min_value == field_info.max_value == right_val)
+                return not (
+                    _scalar_value_eq(field_info.min_value, field_info.max_value)
+                    and _scalar_value_eq(field_info.min_value, right_val)
+                )
             case _:
                 raise ValueError(f"Unsupported operator type: {type(node)}")
 
@@ -234,14 +319,6 @@ class Planner:
             return False
 
         for in_exp in node.expressions:
-            assert isinstance(
-                in_exp,
-                sqlglot.expressions.Literal
-                | sqlglot.expressions.Neg
-                | sqlglot.expressions.Null,
-            ), (
-                f"Expected a literal in in side of {node}, got {in_exp} type {type(in_exp)}"
-            )
             if self._eval_predicate(
                 file_info,
                 sqlglot.expressions.EQ(this=in_val, expression=in_exp),
@@ -381,9 +458,7 @@ class Planner:
 
         return False
 
-    def get_matching_files(
-        self, expression: str, *, dialect: str = "duckdb"
-    ) -> set[str]:
+    def get_matching_files(self, exp: sqlglot.expressions.Expression | str) -> set[str]:
         """
         Get a set of files that match the given SQL expression.
         Args:
@@ -392,15 +467,23 @@ class Planner:
             Returns:
                 A set of filenames that match the expression.
         """
-        parse_result = sqlglot.parse_one(expression, dialect=dialect)
+        if isinstance(exp, str):
+            # Parse the expression if it is a string.
+            expression = sqlglot.parse_one(exp, dialect="duckdb")
+        else:
+            expression = exp
+
+        assert isinstance(expression, sqlglot.expressions.Expression), (
+            f"Expected a sqlglot expression, got {type(expression)}"
+        )
 
         # Simplify the parsed expression, move all of the literals to the right side
-        parse_result = sqlglot.optimizer.simplify.simplify(parse_result)
+        expression = sqlglot.optimizer.simplify.simplify(expression)
 
         matching_files = set()
 
         for filename, file_info in self.files:
-            eval_result = self._evaluate_sql_node(parse_result, file_info)
+            eval_result = self._evaluate_sql_node(expression, file_info)
             if eval_result is None or eval_result is True:
                 # If the expression evaluates to True or cannot be evaluated, add the file
                 # to the result set since the caller will be able to filter the rows further.

@@ -10,5 +10,9 @@
 #   universal: false
 
 -e file:.
-sqlglot==26.33.0
+duckdb==1.3.2
+    # via query-farm-sql-scan-planning
+pyarrow==20.0.0
+    # via query-farm-sql-scan-planning
+sqlglot==27.0.0
     # via query-farm-sql-scan-planning

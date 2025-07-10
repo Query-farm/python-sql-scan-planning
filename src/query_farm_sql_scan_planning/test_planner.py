@@ -1,5 +1,7 @@
 import pytest
-
+import datetime
+import sqlglot
+import pyarrow as pa
 from .planner import RangeFieldInfo, SetFieldInfo, FileFieldInfo, Planner
 
 
@@ -9,91 +11,146 @@ def sample_files() -> list[tuple[str, FileFieldInfo]]:
         (
             "file1",
             {
-                "v1": RangeFieldInfo[int](
-                    min_value=0, max_value=100, has_nulls=False, has_non_nulls=True
+                "v1": RangeFieldInfo(
+                    min_value=pa.scalar(0),
+                    max_value=pa.scalar(100),
+                    has_nulls=False,
+                    has_non_nulls=True,
                 ),
-                "d1": SetFieldInfo[str](
-                    values={"apple"}, has_nulls=False, has_non_nulls=True
+                "d1": SetFieldInfo(
+                    values={pa.scalar("apple")}, has_nulls=False, has_non_nulls=True
+                ),
+                "t1": RangeFieldInfo(
+                    min_value=pa.scalar(datetime.date(2023, 1, 1), pa.date32()),
+                    max_value=pa.scalar(datetime.date(2024, 1, 1), pa.date32()),
+                    has_nulls=False,
+                    has_non_nulls=True,
                 ),
             },
         ),
         (
             "file2",
             {
-                "v1": RangeFieldInfo[int](
-                    min_value=150, max_value=300, has_nulls=False, has_non_nulls=True
+                "v1": RangeFieldInfo(
+                    min_value=pa.scalar(150),
+                    max_value=pa.scalar(300),
+                    has_nulls=False,
+                    has_non_nulls=True,
                 ),
-                "d1": SetFieldInfo[str](
-                    values=set(), has_nulls=False, has_non_nulls=False
+                "d1": SetFieldInfo(values=set(), has_nulls=False, has_non_nulls=False),
+                "t1": RangeFieldInfo(
+                    min_value=None,
+                    max_value=None,
+                    has_nulls=True,
+                    has_non_nulls=False,
                 ),
             },
         ),
         (
             "file3",
             {
-                "v1": RangeFieldInfo[int](
-                    min_value=250, max_value=450, has_nulls=False, has_non_nulls=True
+                "v1": RangeFieldInfo(
+                    min_value=pa.scalar(250),
+                    max_value=pa.scalar(450),
+                    has_nulls=False,
+                    has_non_nulls=True,
                 ),
-                "d1": SetFieldInfo[str](
-                    values=set(), has_nulls=False, has_non_nulls=False
+                "d1": SetFieldInfo(values=set(), has_nulls=False, has_non_nulls=False),
+                "t1": RangeFieldInfo(
+                    min_value=None,
+                    max_value=None,
+                    has_nulls=True,
+                    has_non_nulls=False,
                 ),
             },
         ),
         (
             "file4",
             {
-                "v1": RangeFieldInfo[int](
-                    min_value=400, max_value=600, has_nulls=False, has_non_nulls=True
+                "v1": RangeFieldInfo(
+                    min_value=pa.scalar(400),
+                    max_value=pa.scalar(600),
+                    has_nulls=False,
+                    has_non_nulls=True,
                 ),
-                "d1": SetFieldInfo[str](
-                    values=set(), has_nulls=False, has_non_nulls=False
+                "d1": SetFieldInfo(values=set(), has_nulls=False, has_non_nulls=False),
+                "t1": RangeFieldInfo(
+                    min_value=None,
+                    max_value=None,
+                    has_nulls=True,
+                    has_non_nulls=False,
                 ),
             },
         ),
         (
             "file5",
             {
-                "v1": RangeFieldInfo[int](
-                    min_value=550, max_value=750, has_nulls=False, has_non_nulls=True
+                "v1": RangeFieldInfo(
+                    min_value=pa.scalar(550),
+                    max_value=pa.scalar(750),
+                    has_nulls=False,
+                    has_non_nulls=True,
                 ),
-                "d1": SetFieldInfo[str](
-                    values=set(), has_nulls=False, has_non_nulls=False
+                "d1": SetFieldInfo(values=set(), has_nulls=False, has_non_nulls=False),
+                "t1": RangeFieldInfo(
+                    min_value=None,
+                    max_value=None,
+                    has_nulls=True,
+                    has_non_nulls=False,
                 ),
             },
         ),
         (
             "file6",
             {
-                "v1": RangeFieldInfo[int](
-                    min_value=700, max_value=900, has_nulls=False, has_non_nulls=True
+                "v1": RangeFieldInfo(
+                    min_value=pa.scalar(700),
+                    max_value=pa.scalar(900),
+                    has_nulls=False,
+                    has_non_nulls=True,
                 ),
-                "d1": SetFieldInfo[str](
-                    values=set(), has_nulls=False, has_non_nulls=False
+                "d1": SetFieldInfo(values=set(), has_nulls=False, has_non_nulls=False),
+                "t1": RangeFieldInfo(
+                    min_value=None,
+                    max_value=None,
+                    has_nulls=True,
+                    has_non_nulls=False,
                 ),
             },
         ),
         (
             "file7",
             {
-                "v1": RangeFieldInfo[int](
-                    min_value=500, max_value=500, has_nulls=False, has_non_nulls=True
+                "v1": RangeFieldInfo(
+                    min_value=pa.scalar(500),
+                    max_value=pa.scalar(500),
+                    has_nulls=False,
+                    has_non_nulls=True,
                 ),
-                "d1": SetFieldInfo[str](
-                    values=set(), has_nulls=False, has_non_nulls=False
+                "d1": SetFieldInfo(values=set(), has_nulls=False, has_non_nulls=False),
+                "t1": RangeFieldInfo(
+                    min_value=None,
+                    max_value=None,
+                    has_nulls=True,
+                    has_non_nulls=False,
                 ),
             },
         ),
         (
             "file8",
             {
-                "v1": RangeFieldInfo[None](
+                "v1": RangeFieldInfo(
                     min_value=None,
                     max_value=None,
                     has_nulls=True,
                     has_non_nulls=False,
                 ),
-                "d1": SetFieldInfo[str](
-                    values=set(), has_nulls=False, has_non_nulls=False
+                "d1": SetFieldInfo(values=set(), has_nulls=False, has_non_nulls=False),
+                "t1": RangeFieldInfo(
+                    min_value=None,
+                    max_value=None,
+                    has_nulls=True,
+                    has_non_nulls=False,
                 ),
             },
         ),
@@ -108,6 +165,15 @@ ALL_FILES = set(
 @pytest.mark.parametrize(
     "clause, expected_files",
     [
+        ("t1 = DATE '2023-08-01'", {"file1"}),
+        ("t1 > DATE '2023-08-01'", {"file1"}),
+        ("t1 <> DATE '2023-08-01'", {"file1"}),
+        ("t1 <> DATE '2023-08-01' - interval '6 days'", {"file1"}),
+        # This isn't possible, to evaluate, we need to check for additional
+        # column references on the right hand side that is not the source column,
+        # it needs to distill down to a single scalar value.
+        ("t1 <> DATE '2023-08-01' - interval (v1 || ' days')", ALL_FILES),
+        ("t1 = DATE '1980-08-01'", set()),
         ("d1 = 'apple'", {"file1"}),
         (
             "d1 != 'apple'",
@@ -225,7 +291,7 @@ ALL_FILES = set(
 def test_scan_planning(
     sample_files: list[tuple[str, FileFieldInfo]],
     clause: str,
-    expected_files: set[str],
+    expected_files: set,
 ) -> None:
     """
     Test file filtering based on SQL clauses.
@@ -239,7 +305,7 @@ def test_scan_planning(
     filter_obj = Planner(sample_files)
 
     # Apply the filter
-    result = filter_obj.get_matching_files(clause)
+    result = filter_obj.get_matching_files(sqlglot.parse_one(clause, dialect="duckdb"))
 
     # Check if files were filtered as expected
     if result != expected_files:
