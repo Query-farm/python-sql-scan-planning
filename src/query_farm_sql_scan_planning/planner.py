@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Generator
 import duckdb
 import pyarrow as pa
 import sqlglot
@@ -476,7 +476,9 @@ class Planner:
                     f"Supported types: Connector, Predicate, Not, Boolean, Case, Null"
                 )
 
-    def get_matching_files(self, exp: sqlglot.expressions.Expression | str) -> set[str]:
+    def get_matching_files(
+        self, exp: sqlglot.expressions.Expression | str, *, dialect: str = "duckdb"
+    ) -> Generator[str, None, None]:
         """
         Get a set of files that match the given SQL expression.
         Args:
@@ -487,24 +489,19 @@ class Planner:
         """
         if isinstance(exp, str):
             # Parse the expression if it is a string.
-            expression = sqlglot.parse_one(exp, dialect="duckdb")
+            expression = sqlglot.parse_one(exp, dialect=dialect)
         else:
             expression = exp
 
-        assert isinstance(expression, sqlglot.expressions.Expression), (
-            f"Expected a sqlglot expression, got {type(expression)}"
-        )
+        if not isinstance(expression, sqlglot.expressions.Expression):
+            raise ValueError(f"Expected a sqlglot expression, got {type(expression)}")
 
         # Simplify the parsed expression, move all of the literals to the right side
         expression = sqlglot.optimizer.simplify.simplify(expression)
-
-        matching_files = set()
 
         for filename, file_info in self.files:
             eval_result = self._evaluate_sql_node(expression, file_info)
             if eval_result is None or eval_result is True:
                 # If the expression evaluates to True or cannot be evaluated, add the file
                 # to the result set since the caller will be able to filter the rows further.
-                matching_files.add(filename)
-
-        return matching_files
+                yield filename

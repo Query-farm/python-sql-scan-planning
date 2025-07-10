@@ -66,11 +66,11 @@ files = [
 planner = Planner(files)
 
 # Filter files based on SQL expressions
-matching_files = planner.get_matching_files("sales_amount > 40000 AND region = 'US'")
+matching_files = set(planner.get_matching_files("sales_amount > 40000 AND region = 'US'"))
 print(matching_files)  # {'data_2023_q1.parquet', 'data_2023_q2.parquet'}
 
 # More complex queries
-matching_files = planner.get_matching_files("region IN ('EU', 'UK')")
+matching_files = set(planner.get_matching_files("region IN ('EU', 'UK')"))
 print(matching_files)  # {'data_2023_q2.parquet'}
 ```
 
