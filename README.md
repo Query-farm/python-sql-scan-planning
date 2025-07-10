@@ -42,7 +42,7 @@ files = [
                 min_value=pa.scalar(100), max_value=pa.scalar(50000),
                 has_nulls=False, has_non_nulls=True
             ),
-            "region": SetFieldInfo[str](
+            "region": SetFieldInfo(
                 values={pa.scalar("US"), pa.scalar("CA"), pa.scalar("MX")},
                 has_nulls=False, has_non_nulls=True
             ),
@@ -51,11 +51,11 @@ files = [
     (
         "data_2023_q2.parquet",
         {
-            "sales_amount": RangeFieldInfo[int](
+            "sales_amount": RangeFieldInfo(
                 min_value=pa.scalar(200), max_value=pa.scalar(75000),
                 has_nulls=False, has_non_nulls=True
             ),
-            "region": SetFieldInfo[str](
+            "region": SetFieldInfo(
                 values={pa.scalar("US"), pa.scalar("EU"), pa.scalar("UK")},
                 has_nulls=False, has_non_nulls=True
             ),
