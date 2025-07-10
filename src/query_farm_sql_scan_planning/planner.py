@@ -497,7 +497,7 @@ class Planner:
             raise ValueError(f"Expected a sqlglot expression, got {type(expression)}")
 
         # Simplify the parsed expression, move all of the literals to the right side
-        expression = sqlglot.optimizer.simplify.simplify(expression)
+        expression = sqlglot.optimizer.optimize(expression)
 
         for filename, file_info in self.files:
             eval_result = self._evaluate_sql_node(expression, file_info)

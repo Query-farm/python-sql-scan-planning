@@ -248,7 +248,11 @@ ALL_FILES = set(
         ("v1 * v1 < 200", ALL_FILES),
         ("200 > v1 * v1", ALL_FILES),
         ("abs(v1 - 500) < 100", ALL_FILES),  # Absolute difference
-        ("v1 < 100 and abs(v1 - 500) < 100", ALL_FILES),  # Absolute difference
+        # Drop abs difference, but should still respect bounds.
+        (
+            "v1 < 100 and abs(v1 - 500) < 150",
+            {"file1"},
+        ),
         ("v1 % 2 == 0", ALL_FILES),  # Even numbers
         (
             "v1 is not distinct from 5",
