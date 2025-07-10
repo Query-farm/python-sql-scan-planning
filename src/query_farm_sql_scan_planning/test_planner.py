@@ -314,9 +314,7 @@ def test_scan_planning(
     filter_obj = Planner(sample_files)
 
     # Apply the filter
-    result = set(
-        filter_obj.get_matching_files(sqlglot.parse_one(clause, dialect="duckdb"))
-    )
+    result = set(filter_obj.files(sqlglot.parse_one(clause, dialect="duckdb")))
 
     # Check if files were filtered as expected
     if result != expected_files:

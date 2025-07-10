@@ -12,7 +12,7 @@ This module provides predicate pushdown capabilities for file-based data storage
 - **Metadata-Based Filtering**: Support for both range-based (min/max) and set-based field metadata
 - **Null Handling**: Comprehensive support for `NULL` value semantics in SQL expressions
 - **Complex Predicates**: Handle `AND`, `OR`, `XOR`, `NOT`, `IN`, `BETWEEN`, `CASE` statements, and more
-- **Multiple Data Types**: Support for integers, floats, strings, decimals, and `NULL` values
+- **Multiple Data Types**: Support for integers, floats, strings, decimals, and `NULL` values.  Support for casting between Arrow scalar types.
 - **Dialect Support**: Configurable SQL dialect support (default: DuckDB)
 
 ## Installation
@@ -67,11 +67,11 @@ files = [
 planner = Planner(files)
 
 # Filter files based on SQL expressions
-matching_files = set(planner.get_matching_files("sales_amount > 40000 AND region = 'US'"))
+matching_files = set(planner.files("sales_amount > 40000 AND region = 'US'"))
 print(matching_files)  # {'data_2023_q1.parquet', 'data_2023_q2.parquet'}
 
 # More complex queries
-matching_files = set(planner.get_matching_files("region IN ('EU', 'UK')"))
+matching_files = set(planner.files("region IN ('EU', 'UK')"))
 print(matching_files)  # {'data_2023_q2.parquet'}
 ```
 
@@ -123,6 +123,9 @@ SetFieldInfo(
 ### Control Flow
 - `CASE WHEN ... THEN ... ELSE ... END` (conditional expressions)
 
+### Data Types
+- `CAST` (type casting)
+
 ### Literals
 - Numeric literals: `123`, `45.67`
 - String literals: `'hello'`
@@ -134,30 +137,30 @@ SetFieldInfo(
 ### Range Queries
 ```python
 # Files with sales between 1000 and 5000
-planner.get_matching_files("sales_amount BETWEEN 1000 AND 5000")
+planner.files("sales_amount BETWEEN 1000 AND 5000")
 
 # Files with any sales over 10000
-planner.get_matching_files("sales_amount > 10000")
+planner.files("sales_amount > 10000")
 ```
 
 ### Set Membership
 ```python
 # Files containing specific regions
-planner.get_matching_files("region IN ('US', 'CA')")
+planner.files("region IN ('US', 'CA')")
 
 # Files not containing specific regions
-planner.get_matching_files("region NOT IN ('UNKNOWN', 'TEST')")
+planner.files("region NOT IN ('UNKNOWN', 'TEST')")
 ```
 
 ### Complex Conditions
 ```python
 # Combination of range and set conditions
-planner.get_matching_files(
+planner.files(
     "sales_amount > 5000 AND region IN ('US', 'EU') AND customer_id IS NOT NULL"
 )
 
 # Case expressions
-planner.get_matching_files(
+planner.files(
     "CASE WHEN region = 'US' THEN sales_amount > 1000 ELSE sales_amount > 500 END"
 )
 ```
@@ -165,10 +168,10 @@ planner.get_matching_files(
 ### Null Handling
 ```python
 # Files that might contain null values in sales_amount
-planner.get_matching_files("sales_amount IS NULL")
+planner.files("sales_amount IS NULL")
 
 # Files with non-null sales amounts over 1000
-planner.get_matching_files("sales_amount IS NOT NULL AND sales_amount > 1000")
+planner.files("sales_amount IS NOT NULL AND sales_amount > 1000")
 ```
 
 ## Performance Considerations

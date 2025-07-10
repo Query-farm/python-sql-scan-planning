@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Generator
+from collections.abc import Container
 import duckdb
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -16,33 +17,36 @@ class BaseFieldInfo:
     """
 
     has_nulls: bool
+    """Whether the field has null values in this file."""
+
     has_non_nulls: bool
+    """Whether the field has non-null values in this file."""
 
 
 @dataclass
 class RangeFieldInfo(BaseFieldInfo):
     """
     Information about a field that has a min and max value.
+    This is used for range-based filtering in scan planning.
     """
 
-    min_value: pa.Scalar
-    max_value: pa.Scalar
+    min_value: pa.Scalar | None
+    """Minimum value in the field, can be None if the field is empty."""
+
+    max_value: pa.Scalar | None
+    """Maximum value in the field, can be None if the field is empty."""
 
 
 @dataclass
 class SetFieldInfo(BaseFieldInfo):
     """
     Information about a field where the set of values are known.
-    The information about what values that are contained can produce
-    false positives.
     """
 
-    values: set[
+    values: Container[
         pa.Scalar
     ]  # Set of values that are known to be present in the field, false positives are okay.
-
-
-AnyFieldInfo = SetFieldInfo | RangeFieldInfo
+    """A container of values that are known to be present in the field in this file."""
 
 
 def _scalar_value_op(
@@ -101,9 +105,7 @@ def _sv_eq(a: pa.Scalar, b: pa.Scalar) -> bool:
     return _scalar_value_op(a, b, lambda x, y: x == y)
 
 
-FileFieldInfo = dict[str, AnyFieldInfo]
-
-# When bailing out we should know why we bailed out if we couldn't evaluate the expression.
+FileFieldInfo = dict[str, SetFieldInfo | RangeFieldInfo]
 
 
 class Planner:
@@ -113,13 +115,12 @@ class Planner:
 
     def __init__(self, files: list[tuple[str, FileFieldInfo]]):
         """
-        Initialize with list of (filename, min_value, max_value) tuples.
-
-        Args:
-            file_ranges: List of tuples containing (filename, min_val, max_val)
+        Initialize with a list of (filename, FileFieldInfo) tuples.
         """
-        self.files = files
-        self.connection = duckdb.connect(":memory:")
+        self._files = files
+        """The list of files with their field information."""
+        self._connection = duckdb.connect(":memory:")
+        """DuckDB connection for evaluating scalar values."""
 
     def _eval_predicate(
         self,
@@ -162,7 +163,7 @@ class Planner:
 
         # The thing on the right side should be something that can be evaluated against a range.
         # ideally, its going to be a
-        value_result = self.connection.execute(
+        value_result = self._connection.execute(
             f"select {node.right.sql('duckdb')}"
         ).arrow()
         assert value_result.num_rows == 1, (
@@ -497,31 +498,29 @@ class Planner:
                     f"Supported types: Connector, Predicate, Not, Boolean, Case, Null"
                 )
 
-    def get_matching_files(
-        self, exp: sqlglot.expressions.Expression | str, *, dialect: str = "duckdb"
+    def files(
+        self,
+        expression: sqlglot.expressions.Expression | str,
+        *,
+        dialect: str = "duckdb",
     ) -> Generator[str, None, None]:
         """
         Get a set of files that match the given SQL expression.
-        Args:
-            expression: The SQL expression to evaluate.
-            dialect: The SQL dialect to use for parsing the expression.
-            Returns:
-                A set of filenames that match the expression.
         """
-        if isinstance(exp, str):
+        if isinstance(expression, str):
             # Parse the expression if it is a string.
-            expression = sqlglot.parse_one(exp, dialect=dialect)
+            exp = sqlglot.parse_one(expression, dialect=dialect)
         else:
-            expression = exp
+            exp = expression
 
-        if not isinstance(expression, sqlglot.expressions.Expression):
-            raise ValueError(f"Expected a sqlglot expression, got {type(expression)}")
+        if not isinstance(exp, sqlglot.expressions.Expression):
+            raise ValueError(f"Expected a sqlglot expression, got {type(exp)}")
 
         # Simplify the parsed expression, move all of the literals to the right side
-        expression = sqlglot.optimizer.optimize(expression)
+        exp = sqlglot.optimizer.optimize(exp)
 
-        for filename, file_info in self.files:
-            eval_result = self._evaluate_sql_node(expression, file_info)
+        for filename, file_info in self._files:
+            eval_result = self._evaluate_sql_node(exp, file_info)
             if eval_result is None or eval_result is True:
                 # If the expression evaluates to True or cannot be evaluated, add the file
                 # to the result set since the caller will be able to filter the rows further.
