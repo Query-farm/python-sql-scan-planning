@@ -47,6 +47,9 @@ AnyFieldInfo = SetFieldInfo | RangeFieldInfo
 def _scalar_value_op(
     a: pa.Scalar, b: pa.Scalar, op: Callable[[Any, Any], bool]
 ) -> bool:
+    """
+    Perform a scalar value operation on two scalars.
+    """
     assert not pa.types.is_null(a.type), (
         f"Expected a non-null scalar value, got {a} of type {a.type}"
     )
@@ -77,23 +80,23 @@ def _scalar_value_op(
     return op(a.as_py(), b.as_py())
 
 
-def _scalar_value_lte(a: pa.Scalar, b: pa.Scalar) -> bool:
+def _sv_lte(a: pa.Scalar, b: pa.Scalar) -> bool:
     return _scalar_value_op(a, b, lambda x, y: x <= y)
 
 
-def _scalar_value_lt(a: pa.Scalar, b: pa.Scalar) -> bool:
+def _sv_lt(a: pa.Scalar, b: pa.Scalar) -> bool:
     return _scalar_value_op(a, b, lambda x, y: x < y)
 
 
-def _scalar_value_gt(a: pa.Scalar, b: pa.Scalar) -> bool:
+def _sv_gt(a: pa.Scalar, b: pa.Scalar) -> bool:
     return _scalar_value_op(a, b, lambda x, y: x > y)
 
 
-def _scalar_value_gte(a: pa.Scalar, b: pa.Scalar) -> bool:
+def _sv_gte(a: pa.Scalar, b: pa.Scalar) -> bool:
     return _scalar_value_op(a, b, lambda x, y: x >= y)
 
 
-def _scalar_value_eq(a: pa.Scalar, b: pa.Scalar) -> bool:
+def _sv_eq(a: pa.Scalar, b: pa.Scalar) -> bool:
     return _scalar_value_op(a, b, lambda x, y: x == y)
 
 
@@ -115,6 +118,7 @@ class Planner:
             file_ranges: List of tuples containing (filename, min_val, max_val)
         """
         self.files = files
+        self.connection = duckdb.connect(":memory:")
 
     def _eval_predicate(
         self,
@@ -146,22 +150,20 @@ class Planner:
 
         # The thing on the right side should be something that can be evaluated against a range.
         # ideally, its going to be a
-        if True:  # isinstance(node.right, sqlglot.expressions.Cast):
-            connection = duckdb.connect(":memory:")
-            value_result = connection.execute(
-                f"select {node.right.sql('duckdb')}"
-            ).arrow()
-            assert value_result.num_rows == 1, (
-                f"Expected a single row result from cast, got {value_result.num_rows} rows"
-            )
-            assert value_result.num_columns == 1, (
-                f"Expected a single column result from cast, got {value_result.num_columns} columns"
-            )
+        value_result = self.connection.execute(
+            f"select {node.right.sql('duckdb')}"
+        ).arrow()
+        assert value_result.num_rows == 1, (
+            f"Expected a single row result from cast, got {value_result.num_rows} rows"
+        )
+        assert value_result.num_columns == 1, (
+            f"Expected a single column result from cast, got {value_result.num_columns} columns"
+        )
 
-            right_val = value_result.column(0)[0]
-            # This is an interesting behavior, null is returned with an int32 type.
-            if type(right_val) is pa.Int32Scalar and right_val.as_py() is None:
-                right_val = pa.scalar(None, type=pa.null())
+        right_val = value_result.column(0)[0]
+        # This is an interesting behavior, null is returned with an int32 type.
+        if type(right_val) is pa.Int32Scalar and right_val.as_py() is None:
+            right_val = pa.scalar(None, type=pa.null())
 
         left_val = node.left
         assert isinstance(left_val, sqlglot.expressions.Column), (
@@ -205,8 +207,8 @@ class Planner:
                 return field_info.has_non_nulls
 
             return not (
-                _scalar_value_eq(field_info.min_value, field_info.max_value)
-                and _scalar_value_eq(field_info.min_value, right_val)
+                _sv_eq(field_info.min_value, field_info.max_value)
+                and _sv_eq(field_info.min_value, right_val)
             )
 
         elif type(node) is sqlglot.expressions.NullSafeEQ:
@@ -215,9 +217,9 @@ class Planner:
             if field_info.min_value is None or field_info.max_value is None:
                 return False
             assert not pa.types.is_null(right_val.type)
-            return _scalar_value_lte(
-                field_info.min_value, right_val
-            ) and _scalar_value_lte(right_val, field_info.max_value)
+            return _sv_lte(field_info.min_value, right_val) and _sv_lte(
+                right_val, field_info.max_value
+            )
 
         if field_info.min_value is None or field_info.max_value is None:
             return False
@@ -227,28 +229,28 @@ class Planner:
 
         match type(node):
             case sqlglot.expressions.EQ:
-                return _scalar_value_lte(
-                    field_info.min_value, right_val
-                ) and _scalar_value_lte(right_val, field_info.max_value)
+                return _sv_lte(field_info.min_value, right_val) and _sv_lte(
+                    right_val, field_info.max_value
+                )
             case sqlglot.expressions.NEQ:
                 return not (
-                    _scalar_value_eq(field_info.min_value, field_info.max_value)
-                    and _scalar_value_eq(field_info.min_value, right_val)
+                    _sv_eq(field_info.min_value, field_info.max_value)
+                    and _sv_eq(field_info.min_value, right_val)
                 )
             case sqlglot.expressions.LT:
-                return _scalar_value_lt(field_info.min_value, right_val)
+                return _sv_lt(field_info.min_value, right_val)
             case sqlglot.expressions.LTE:
-                return _scalar_value_lte(field_info.min_value, right_val)
+                return _sv_lte(field_info.min_value, right_val)
             case sqlglot.expressions.GT:
-                return _scalar_value_gt(field_info.max_value, right_val)
+                return _sv_gt(field_info.max_value, right_val)
             case sqlglot.expressions.GTE:
-                return _scalar_value_gte(field_info.max_value, right_val)
+                return _sv_gte(field_info.max_value, right_val)
             case sqlglot.expressions.NullSafeEQ:
                 if pa.types.is_null(right_val.type) and field_info.has_non_nulls:
                     return True
-                return _scalar_value_lte(
-                    field_info.min_value, right_val
-                ) and _scalar_value_lte(right_val, field_info.max_value)
+                return _sv_lte(field_info.min_value, right_val) and _sv_lte(
+                    right_val, field_info.max_value
+                )
             case sqlglot.expressions.NullSafeNEQ:
                 if (
                     not pa.types.is_null(right_val.type)
@@ -256,8 +258,8 @@ class Planner:
                 ):
                     return True
                 return not (
-                    _scalar_value_eq(field_info.min_value, field_info.max_value)
-                    and _scalar_value_eq(field_info.min_value, right_val)
+                    _sv_eq(field_info.min_value, field_info.max_value)
+                    and _sv_eq(field_info.min_value, right_val)
                 )
             case _:
                 raise ValueError(f"Unsupported operator type: {type(node)}")
