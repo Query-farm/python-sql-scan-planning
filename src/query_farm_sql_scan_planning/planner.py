@@ -272,21 +272,26 @@ class Planner:
 
         Returns True, False, or None if the expression cannot be evaluated.
         """
-        op_map: dict[
-            type[sqlglot.expressions.Connector], Callable[[bool, bool], bool]
-        ] = {
-            sqlglot.expressions.And: lambda left, right: left and right,
-            sqlglot.expressions.Or: lambda left, right: left or right,
-            sqlglot.expressions.Xor: lambda left, right: left ^ right,
-        }
-
-        for expr_type, op in op_map.items():
-            if isinstance(node, expr_type):
-                left_result = self._evaluate_sql_node(node.left, file_info)
-                right_result = self._evaluate_sql_node(node.right, file_info)
-                if left_result is None or right_result is None:
-                    return None
-                return op(left_result, right_result)
+        assert isinstance(node, sqlglot.expressions.Connector), (
+            f"Expected a connector node, got {node} of type {type(node)}"
+        )
+        match type(node):
+            case sqlglot.expressions.And:
+                return self._evaluate_sql_node(
+                    node.left, file_info
+                ) and self._evaluate_sql_node(node.right, file_info)
+            case sqlglot.expressions.Or:
+                return self._evaluate_sql_node(
+                    node.left, file_info
+                ) or self._evaluate_sql_node(node.right, file_info)
+            case sqlglot.expressions.Xor:
+                raise ValueError("Unsupported XOR operation in SQL expression.")
+                # return self._evaluate_sql_node(
+                #     node.left, file_info
+                # ) ^ self._evaluate_sql_node(node.right, file_info)
+            case _:
+                # If we reach here, it means the node is not a recognized connector type.
+                assert False, f"Unexpected connector type: {type(node)}"
 
         raise ValueError(f"Unsupported connector type: {type(node)}")
 
@@ -439,26 +444,37 @@ class Planner:
         Evaluate a SQL node against a file's field info.
         Returns True, False, or None if the expression cannot be evaluated.
         """
-        if isinstance(node, sqlglot.expressions.Connector):
-            return self._evaluate_node_connector(node, file_info)
-        elif isinstance(node, sqlglot.expressions.Predicate):
-            return self._evaluate_node_predicate(node, file_info)
-        elif isinstance(node, sqlglot.expressions.Not):
-            if isinstance(node.this, sqlglot.expressions.In):
-                # Handle 'not in' operations
-                return self._evaluate_node_not_in(node.this, file_info)
-            # Handle 'not' operations
-            return not self._evaluate_sql_node(node.this, file_info)
-        elif isinstance(node, sqlglot.expressions.Boolean):
-            return node.to_py()
-        elif isinstance(node, sqlglot.expressions.Case):
-            return self._evaluate_node_case(node, file_info)
-        elif isinstance(node, sqlglot.expressions.Null):
-            return False
-        else:
-            raise ValueError(f"Unsupported node type: {type(node)}")
+        match node:
+            case sqlglot.expressions.Connector():
+                return self._evaluate_node_connector(node, file_info)
 
-        return False
+            case sqlglot.expressions.Predicate():
+                return self._evaluate_node_predicate(node, file_info)
+
+            case sqlglot.expressions.Not():
+                match node.this:
+                    case sqlglot.expressions.In():
+                        # Handle 'not in' operations
+                        return self._evaluate_node_not_in(node.this, file_info)
+                    case _:
+                        # Handle general 'not' operations
+                        inner_result = self._evaluate_sql_node(node.this, file_info)
+                        return None if inner_result is None else not inner_result
+
+            case sqlglot.expressions.Boolean():
+                return node.to_py()
+
+            case sqlglot.expressions.Case():
+                return self._evaluate_node_case(node, file_info)
+
+            case sqlglot.expressions.Null():
+                return False
+
+            case _:
+                raise ValueError(
+                    f"Unsupported node type: {type(node).__name__}. "
+                    f"Supported types: Connector, Predicate, Not, Boolean, Case, Null"
+                )
 
     def get_matching_files(self, exp: sqlglot.expressions.Expression | str) -> set[str]:
         """
