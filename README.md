@@ -31,18 +31,19 @@ rye add query-farm-sql-scan-planning
 
 ```python
 from query_farm_sql_scan_planning import Planner, RangeFieldInfo, SetFieldInfo
+import pyarrow as pa
 
 # Define file metadata
 files = [
     (
         "data_2023_q1.parquet",
         {
-            "sales_amount": RangeFieldInfo[int](
-                min_value=100, max_value=50000,
+            "sales_amount": RangeFieldInfo(
+                min_value=pa.scalar(100), max_value=pa.scalar(50000),
                 has_nulls=False, has_non_nulls=True
             ),
             "region": SetFieldInfo[str](
-                values={"US", "CA", "MX"},
+                values={pa.scalar("US"), pa.scalar("CA"), pa.scalar("MX")},
                 has_nulls=False, has_non_nulls=True
             ),
         }
@@ -51,11 +52,11 @@ files = [
         "data_2023_q2.parquet",
         {
             "sales_amount": RangeFieldInfo[int](
-                min_value=200, max_value=75000,
+                min_value=pa.scalar(200), max_value=pa.scalar(75000),
                 has_nulls=False, has_non_nulls=True
             ),
             "region": SetFieldInfo[str](
-                values={"US", "EU", "UK"},
+                values={pa.scalar("US"), pa.scalar("EU"), pa.scalar("UK")},
                 has_nulls=False, has_non_nulls=True
             ),
         }
@@ -81,9 +82,9 @@ print(matching_files)  # {'data_2023_q2.parquet'}
 For fields with known minimum and maximum values:
 
 ```python
-RangeFieldInfo[int](
-    min_value=0,
-    max_value=100,
+RangeFieldInfo(
+    min_value=pa.scalar(0),
+    max_value=pa.scalar(100),
     has_nulls=False,      # Whether the field contains NULL values
     has_non_nulls=True    # Whether the field contains non-NULL values
 )
@@ -94,8 +95,8 @@ RangeFieldInfo[int](
 For fields with a known set of possible values (useful for categorical data):
 
 ```python
-SetFieldInfo[str](
-    values={"apple", "banana", "cherry"},
+SetFieldInfo(
+    values={pa.scalar("apple"), pa.scalar("banana"), pa.scalar("cherry")},
     has_nulls=False,
     has_non_nulls=True
 )

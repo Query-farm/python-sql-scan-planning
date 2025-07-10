@@ -3,9 +3,10 @@ from dataclasses import dataclass
 from typing import Any, Generator
 import duckdb
 import pyarrow as pa
+import pyarrow.compute as pc
 import sqlglot
 import sqlglot.expressions
-import sqlglot.optimizer.simplify
+import sqlglot.optimizer
 
 
 @dataclass
@@ -139,9 +140,20 @@ class Planner:
         if isinstance(node, sqlglot.expressions.Is):
             return self._evaluate_node_is(node, file_info)
 
-        # Handle comparison operations
-        if not isinstance(node.left, sqlglot.expressions.Column):
+        # So if the left is just a cast of an column ref we can handle that
+        # because the right hand side will also be that way.
+
+        left_is_column = isinstance(node.left, sqlglot.expressions.Column)
+        left_is_cast = isinstance(node.left, sqlglot.expressions.Cast)
+        need_left_value_cast = False
+        if left_is_cast and isinstance(node.left.this, sqlglot.expressions.Column):
+            # If the left side is a cast of a column, we can treat it as a column reference.
+            need_left_value_cast = True
+            left_column_name = node.left.this.this.this
+        elif not left_is_column:
             return None
+        else:
+            left_column_name = node.left.this.this
 
         if node.right.find(sqlglot.expressions.Column) is not None:
             # Can't evaluate this since it has a right hand column ref, ideally
@@ -165,14 +177,7 @@ class Planner:
         if type(right_val) is pa.Int32Scalar and right_val.as_py() is None:
             right_val = pa.scalar(None, type=pa.null())
 
-        left_val = node.left
-        assert isinstance(left_val, sqlglot.expressions.Column), (
-            f"Expected a column on left side of {node}, got {left_val}"
-        )
-        assert isinstance(left_val.this, sqlglot.expressions.Identifier), (
-            f"Expected an identifier on left side of {node}, got {left_val.this}"
-        )
-        referenced_field_name = left_val.this.this
+        referenced_field_name = left_column_name
 
         field_info = file_info.get(referenced_field_name)
 
@@ -180,6 +185,22 @@ class Planner:
         # just note that we couldn't evaluate the expression.
         if field_info is None:
             return None
+
+        if need_left_value_cast:
+            if not isinstance(field_info, RangeFieldInfo):
+                # If we need a value cast but the field info is not a range,
+                # we can't evaluate this expression.
+                return None
+            field_info = RangeFieldInfo(
+                has_nulls=field_info.has_nulls,
+                has_non_nulls=field_info.has_non_nulls,
+                min_value=pc.cast(field_info.min_value, right_val.type)
+                if field_info.min_value is not None
+                else None,
+                max_value=pc.cast(field_info.max_value, right_val.type)
+                if field_info.max_value is not None
+                else None,
+            )
 
         if isinstance(field_info, SetFieldInfo):
             match type(node):

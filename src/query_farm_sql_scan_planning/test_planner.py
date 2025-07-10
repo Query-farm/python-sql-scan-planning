@@ -165,8 +165,12 @@ ALL_FILES = set(
 @pytest.mark.parametrize(
     "clause, expected_files",
     [
+        ("t1::date >= '2030-01-01'", set()),
+        ("t1::date = '2023-08-01'", {"file1"}),
         ("t1 = DATE '2023-08-01'", {"file1"}),
         ("t1 > DATE '2023-08-01'", {"file1"}),
+        ("t1::date > '2023-08-01'", {"file1"}),
+        ("cast(t1 as timestamp) > TIMESTAMP '2023-08-01'", {"file1"}),
         ("t1 <> DATE '2023-08-01'", {"file1"}),
         ("t1 <> DATE '2023-08-01' - interval '6 days'", {"file1"}),
         # This isn't possible, to evaluate, we need to check for additional
@@ -186,6 +190,7 @@ ALL_FILES = set(
         ),
         ("'apple' in (d1)", ALL_FILES),  # could be improved.
         ("v1 < 100 and d1 = 'apple'", {"file1"}),
+        ("v1::uhugeint * 5 > 400", ALL_FILES),
         ("v1 > 500 and v1 < 600", {"file4", "file5"}),
         ("v1 != 500 and v1 < 400", {"file1", "file2", "file3"}),
         ("v1 >= 300 and v1 <= 500", {"file2", "file3", "file4", "file7"}),
